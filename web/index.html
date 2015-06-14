@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -6,20 +7,48 @@
 	<title>GDG self-checkin</title>
 
 
-	<script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>	
-	<script src="http://labelwriter.com/software/dls/sdk/js/DYMO.Label.Framework.latest.js" type="text/javascript" charset="UTF-8"></script>
+	<script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
 
 
-	<script src="js/llqrcode.js"></script>	
-	<script src="js/webqr.js"></script>	
+
+	<script src="js/DYMO.Label.Framework.latest.js" type="text/javascript" charset="UTF-8"></script>
+	<script src="js/llqrcode.js"></script>
+	<script src="js/webqr.js"></script>
+
+
+	<!-- Include the PubNub Library -->
+	<script src="https://cdn.pubnub.com/pubnub.min.js"></script>
+
 
 	<script type="text/javascript">
 
-		var CLIENT_ID = '161435449296.apps.googleusercontent.com';
+		var PUBNUB_PUB = "pub-c-ed1ab931-7ca1-4c04-90c9-2498eb72bd03";
+		var PUBNUB_SUB = "sub-c-af9b5050-fe8a-11e3-94a5-02ee2ddab7fe";
+
+
+		var PUBNUB_checkin = PUBNUB.init({
+			publish_key: PUBNUB_PUB,
+			subscribe_key: PUBNUB_SUB
+		});
+
+
+		var localFile = "";
+
+		var currentFile = localStorage.getItem("CHECKIN_FILE");
+
+		var currentSpreadsheetId;
+		
+		var DEVELOPER_KEY = "AIzaSyD5AQL3t2idy9hqzPl5heIHpQvOOnzDtZ4"; //"AIzaSyBUpwMSmFdBkD6tGwYcpcMDf79loU8s-IQ";
+		var CLIENT_ID_REMOTE = '551118265091-8omifjrldcd2h0ub971lsalu914aef5a.apps.googleusercontent.com';
+		var CLIENT_ID_LOCAL = '551118265091-8omifjrldcd2h0ub971lsalu914aef5a.apps.googleusercontent.com';
+		
+		var CLIENT_ID = location.hostname == "localhost" ? CLIENT_ID_LOCAL : CLIENT_ID_REMOTE;
+
 		var SCOPES = [
 			'https://www.googleapis.com/auth/drive',
 			'https://www.googleapis.com/auth/drive.file',
 			'https://spreadsheets.google.com/feeds',
+			'https://www.googleapis.com/auth/drive.readonly'
 		];
 
 		// Use your own API developer key.
@@ -44,6 +73,10 @@
 
 
 		$(document).ready(function(){
+
+
+			console.log('document ready')
+
 			authButton = document.getElementById('authorizeButton');
 			pickerButton = document.getElementById('pickerButton');
 
@@ -56,9 +89,10 @@
 			{
 				initCanvas(800,600);
 				qrcode.callback = function(a) {
-					validateAttendee(a);
+					validateAttendee(a, true);
 				};
 			}
+
 
 
 			$("#begin").fadeIn();
@@ -75,7 +109,7 @@
 			$(document).keypress(function(e) {
 				if(e.which == 13) {
 					if ($("#txtEmail").val() != "") {
-						validateAttendee($("#txtEmail").val());
+						validateAttendee($("#txtEmail").val(), true);
 						$("#txtEmail").val("");
 					} else {
 						showCheckin();
@@ -96,6 +130,13 @@
 				fs.root.getFile('credenciamento_'+new Date().toJSON()+'.txt', {create: true}, function(fileEntry) {
 					window.fileEntry = fileEntry;
 
+
+					console.log(fileEntry);
+					console.log("FILE:", fileEntry.fullPath);
+
+					// defining checkin url
+					$("h2 a").attr("href", "filesystem:http://luisleao.com.br/persistent" + fileEntry.fullPath);
+
 					// Create a FileWriter object for our FileEntry (log.txt).
 					fileEntry.createWriter(function(fileWriter) {
 
@@ -111,6 +152,7 @@
 
 						// Create a new Blob and write it to log.txt.
 						var blob = new Blob(['started ', new Date().toJSON(), '\n'], {type: 'text/plain'});
+
 						fileWriter.write(blob);
 
 
@@ -129,7 +171,8 @@
 			}    
 
 			//window.requestFileSystem(window.PERSISTENT, 10*1024*1024 /*5MB*/, onInitFs, errorHandler);
-			window.webkitStorageInfo.requestQuota(PERSISTENT, 10%1024*1024, function(grantedBytes) {
+			navigator.webkitPersistentStorage.requestQuota(10*1024*1024, function(grantedBytes) {
+				//var grantedBytes = 10%1024*1024;
 				window.requestFileSystem(PERSISTENT, grantedBytes, onInitFs, errorHandler);
 			}, function(e) {
 				console.log('Error', e);
@@ -138,19 +181,25 @@
 		});
 
 
-		function printLabel(attendee, company) {
+		function printLabel(nome) { //printLabel(nome, tipo, codelab);
+
 			if (printers.length == 0 || !label) return;
 
-			if (!company) company = "";
+			//if (!tipo) tipo = "";
 
-			label.setObjectText("attendee", attendee);
-			label.setObjectText("company", company);
+			//label.setObjectText("tipo", tipo);
+			label.setObjectText("nome", nome);
+			//if (codelab && codelab != "") {
+			//	label.setObjectText("codelab", "Codelab(s): " + codelab);
+			//} else {
+			//	label.setObjectText("codelab", "");
+			//}
 			label.print(printers[0].name);
 		}
 
 		function loadLabelFromWeb() {                     
 			// use jQuery API to load label
-			$.get("youtubedevday.label", function(labelXml) {
+			$.get("labels/hackatec.label", function(labelXml) {
 				label = dymo.label.framework.openLabelXml(labelXml);
 				label_loaded = true;
 				// check that label has an address object
@@ -260,7 +309,8 @@
 	          .enableFeature(google.picker.Feature.NAV_HIDDEN)
 	          //.enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
 	          .setAppId(CLIENT_ID)
-	          //.setOAuthToken(gapi.auth.getToken().access_token) //Optional: The auth token used in the current Drive API session.
+	          .setOAuthToken(gapi.auth.getToken().access_token) //Optional: The auth token used in the current Drive API session.
+	          .setDeveloperKey(DEVELOPER_KEY)
 	          .addView(view)
 	          .addView(new google.picker.DocsUploadView())
 	          .setCallback(pickerCallback)
@@ -270,24 +320,32 @@
 	       picker.setVisible(true);
 	    }
 
-	    // A simple callback implementation.
-	    function pickerCallback(data) {
-	      if (data.action == google.picker.Action.PICKED) {
 
-			pickerButton.style.display = 'none';
+	    function getFile(fileId) {
+	    	//XXX
+	        localStorage.setItem("CHECKIN_FILE", currentFile);
 
-	        var fileId = data.docs[0].id;
-	        currentFile = fileId;
+	        currentSpreadsheetId = fileId;
 
 			var request = gapi.client.drive.files.get({
 				'fileId': fileId
 			});
+
+			console.log('metadata');
+			console.log(request);
+
 			request.execute(function(resp) {
+				console.log('resp');
+				console.log(resp);
 				var token = gapi.auth.getToken().access_token;
 
 				var urlWorkseets = 'https://spreadsheets.google.com/feeds/worksheets/' + resp.id + '/private/basic?alt=json-in-script&access_token=' + token + '&callback=?';
 				$.getJSON(urlWorkseets, function(data) {
 					window.worksheets = data;
+
+					console.log('data below:');
+					console.log(urlWorkseets);
+					console.log(data);
 
 					var urlCells = data.feed.entry[0].link[1].href + '?alt=json-in-script&access_token=' + token + '&callback=?';
 					$("#planilha").empty().text("worksheet: '" + data.feed.entry[0].title.$t + "'");
@@ -318,16 +376,16 @@
 								item_keys = Object.keys(arrayList[index]);
 							} else {
 								item = arrayList[index];
+
 								if (item[item_keys[0]]) {
 									var attendee = {};
-									for(var i=1,j=0; i<item_keys.length-1; i++, j++) {
+									for(var i=1,j=0; i<=item_keys.length-1; i++, j++) {
 										attendee[j] = item[item_keys[i]];
 									}
 									attendees[item[item_keys[0]].toLowerCase()] = attendee;
 								}
 							}
 						}
-
 
 						console.log("attendee list completed!");
 						setwebcam();
@@ -338,45 +396,114 @@
 
 			});
 
+	    }
+
+	    // A simple callback implementation.
+	    function pickerCallback(data) {
+	      if (data.action == google.picker.Action.PICKED) {
+
+			pickerButton.style.display = 'none';
+
+	        var fileId = data.docs[0].id;
+
+	        currentFile = fileId;
+	        getFile(fileId);
+
+
+
+			PUBNUB_checkin.subscribe({
+				channel: currentFile,
+				message: function(m){
+					validateAttendee(m.id);
+					console.log(m)
+					//checkInOnSpreadSheet(m.id);
+				}
+			});
+
+
+
 	      }
 	    }
 
 
 
 
-		function validateAttendee(id) {
+		function checkInOnSpreadSheet(userEmail){
+			$.post( "https://gdgsp.herokuapp.com/checkin", { spreadsheetId: currentSpreadsheetId, userEmail: userEmail})
+			.done(function( data ) {
+				console.log( "Data Loaded: ", data );
+			});
+		}
+
+
+
+	    function checkAttendee(id) {
+	    	if (!attendees[id]) return;
+			attendee = attendees[id];
+			checked_attendees[id] = attendee;
+			delete(attendees[id]);
+
+			checkInOnSpreadSheet(id);
+	    }
+
+		function validateAttendee(id, isLocal) {
 			id = id.toLowerCase();
 			if (attendees[id]) {
 				attendee = attendees[id];
-				checked_attendees[id] = attendee;
+				//checked_attendees[id] = attendee;
 
 				if (window.fileWriter) {
 					// saving file in localStorage (PERMANENT) to confirm checkin
 					// Create a new Blob and write it to log.txt.
 					var blob = new Blob([new Date().toJSON(),';', id, ';', JSON.stringify(attendee),'\n'], {type: 'text/plain'});
 					window.fileWriter.write(blob);
+					
 				}
 
 
-				printLabel(attendee[0], attendee[1]);
-				delete(attendees[id]);
-				$("#checkin").fadeOut(function(){
-					$("#result").empty().append("olá " + attendee[0] + "!").fadeIn(function(){
-						tmrShowCheckin = setTimeout(showCheckin, 2000);
+				//printLabel(nome, tipo, codelab);
+				if (isLocal) {
+					printLabel(attendee[0]); //, attendee[1], attendee[2]
+
+					//Here the spreadsheet must be updated checkin the attendee
+					console.log(attendee);
+
+
+					PUBNUB_checkin.publish({
+						channel: currentFile,
+						message: { "id": id}
 					});
-				})
+
+					console.log(attendee[0]);
+					console.log(attendee);	
+
+					$("#checkin").fadeOut(function(){
+						$("#result").empty().append("olá " + attendee[0] + "!").fadeIn(function(){
+							tmrShowCheckin = setTimeout(showCheckin, 2000);
+						});
+					})
+
+
+				}
+				checkAttendee(id);
+
+
 
 			} else {
-				var mensagem = "registro não encontrado!"; //ID not found
-				if (checked_attendees[id]) {
-					mensagem = "checkin já realizado!"; //checkin already done
-				}
+				if (isLocal) {
 
-				$("#checkin").fadeOut(function(){
-					$("#result").empty().append(mensagem).fadeIn(function(){
-						tmrShowCheckin = setTimeout(showCheckin, 3000);
+					var mensagem = "registro não encontrado!"; //ID not found
+					if (checked_attendees[id]) {
+						mensagem = "checkin já realizado!"; //checkin already done
+					}
+
+					$("#checkin").fadeOut(function(){
+						$("#result").empty().append(mensagem).fadeIn(function(){
+							tmrShowCheckin = setTimeout(showCheckin, 3000);
+						});
 					});
-				})
+					
+				}
 			}
 		}
 
@@ -398,47 +525,55 @@
 		}
 
 
+
+
+
     </script>
-    
-    <script type="text/javascript" src="https://apis.google.com/js/client.js?onload=handleClientLoad"></script>
-    <script type="text/javascript" src="https://apis.google.com/js/api.js?onload=loadPicker"></script>
+
+	<script type="text/javascript" src="https://apis.google.com/js/client.js?onload=handleClientLoad"></script>
+	<script type="text/javascript" src="https://apis.google.com/js/api.js?onload=loadPicker"></script>
 
 
 
-  </head>
-  <body>
-
-	<img src="img/hack.png" alt="" id="logo" />
-	<h1>retire sua credencial</h1>
-
-	<div id="begin">
-
-	    <input type="button" id="pickerButton" style="display: none" value="Choose Spreadsheet"/>
-	    <input type="button" id="authorizeButton" style="display: none" value="Authorize" />
-
-	    <span id="planilha"></span>
-
-	</div>
-    <div id="checkin">
-    	<label>
-    		mostre o QRCode para a webcam ou digite seu e-mail informado no cadastro e pressione &lt;ENTER&gt;
-    		<!-- show the QRCode or type your e-mail and press ENTER -->
-    	</label>
-		<input type="text" id="txtEmail"></input>
-		<video id="v" autoplay></video>
-	</div>
-	<div id="result">
-		mensagem de texto
-	</div>
-
-	<link href='http://fonts.googleapis.com/css?family=Roboto' rel='stylesheet' type='text/css'>
-	<link href='css/main.css' rel='stylesheet' type='text/css'>
 
 
-	<canvas id="qr-canvas" width="800" height="600" style="display: none;"></canvas>
-	<div id="outdiv"></div>
+</head>
+<body>
 
-	<h2>Desenvolvido pelo GDG São Paulo - Setembro/2013 <span><!-- # of checked attendees/total --></span> </h2>
+<img src="img/generico_v2.png" alt="" id="fundo" />
+<!--
+ <img id="logo" src="https://lh4.googleusercontent.com/-b7zuDox9pYk/Uv5RULGdAeI/AAAAAAAAAAA/IuwOZUDp0xE/w1200-h300/event_theme.jpg"></img>
+ -->
+<h1></h1>
 
-  </body>
+<div id="begin">
+
+	<input type="button" id="pickerButton" style="display: none" value="Choose Spreadsheet"/>
+	<input type="button" id="authorizeButton" style="display: none" value="Authorize" />
+
+	<span id="planilha"></span>
+
+</div>
+<div id="checkin">
+	<label>
+		mostre o QRCode para a webcam ou digite seu e-mail informado no cadastro e pressione &lt;ENTER&gt;
+		<!-- show the QRCode or type your e-mail and press ENTER -->
+	</label>
+	<input type="text" id="txtEmail" placeholder="informe seu e-mail e pressione &lt;ENTER&gt; ou mostre o QRCode"></input>
+	<video id="v" autoplay></video>
+</div>
+<div id="result">
+
+</div>
+
+<link href='http://fonts.googleapis.com/css?family=Roboto' rel='stylesheet' type='text/css'>
+<link href='css/main.css' rel='stylesheet' type='text/css'>
+
+
+<canvas id="qr-canvas" width="800" height="600" style="display: none;"></canvas>
+<div id="outdiv"></div>
+
+<h2>Desenvolvido pelo GDG São Paulo - Setembro/2013 <a href="#" target="_blank"><span><!-- # of checked attendees/total --></span></a></h2>
+
+</body>
 </html>
